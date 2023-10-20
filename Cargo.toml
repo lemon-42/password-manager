@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 magic-crypt = "*"
-rust-crypto = "*"

@@ -1,10 +1,4 @@
-extern crate crypto;
-
-use crypto::aes_gcm::AesGcm;
 // -------------- Crypto ----------------
-use crypto::symmetriccipher::SynchronousStreamCipher;
-use crypto::aes::{self, KeySize};
-use crypto::buffer::{ReadBuffer, WriteBuffer, BufferResult};
 
 // -------------- File ----------------
 //use std::fmt::write;
@@ -71,15 +65,4 @@ fn encrypt_string(content: &str) -> String {
     let mcrypt = new_magic_crypt!("magickey", 256);
     let encrypted_string = mcrypt.encrypt_bytes_to_base64(content);
     encrypted_string
-}
-
-fn encrypt_data_crypto(key: &[u8], plaintext: &[u8]) -> Vec<u8> {
-    let mut encryptor = aes::ecb_encryptor(KeySize::KeySize128, key, aes::blockmodes::NoPadding);
-    let mut encrypted_data = Vec::new();
-    let mut read_buffer = crypto::buffer::RefReadBuffer::new(plaintext);
-    let mut write_buffer = crypto::buffer::RefWriteBuffer::new(&mut encrypted_data);
-
-    encryptor.encrypt(&mut read_buffer, &mut write_buffer, true).unwrap();
-
-    encrypted_data
 }
