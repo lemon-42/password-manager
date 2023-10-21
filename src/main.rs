@@ -3,59 +3,57 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
 use std::io::prelude::*;
-use magic_crypt::{new_magic_crypt, MagicCryptTrait};
+use orion::hazardous::stream::chacha20;
+use argon2::{self, Argon2, password_hash::{SaltString, PasswordHasher}};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
-        println!("[-] Usage : ./pmon <file> ")
+        eprintln!("[-] Usage : ./pmon <file> ");
+        return Err("Invalid number of arguments".into())
     }
 
-    let file_path = &args[1];
+    let file_path = args.get(1).unwrap();
     println!("[+] Using file : {}", file_path);
 
-    let mut user_password = String::new();
     if !file_path.is_empty() {
-        println!("[+] Enter a password in your file : ");
-        io::stdin()
-            .read_line(&mut user_password)
-            .expect("Failed to read input");
-
+        let user_password = prompt_for_password()?;
         if user_password.trim().is_empty() {
-            eprintln!("[-] You must specify a password.");
-            return;
+            return Err("You must specify a password.".into())
         }
 
-        let result = write_to_file(file_path, &user_password);
-        match result {
-            Ok(()) => println!("[+] File created nicely"),
-            Err(err) => eprintln!("[-] Error when creating the file : {}", err),
-        } 
+        let key = derive_key_from_password(&user_password);
+        let encrypt_password = encrypt_password(&user_password, &key);
 
+        let mut file = File::create(file_path)?;
+
+        file.write_all(&key)?;
+        file.write_all(&encrypt_password)?;
+        println!("[+] Password save to {}", file_path);
     } else {
         println!("[+] File path not specified. Creating one of your own : ");
         let mut file_name = String::new();
-        io::stdin()
-            .read_line(&mut file_name)
-            .expect("Failed to read input");
-
-        match create_file(&file_name) {
-            Ok(()) => println!("We're in the match section !"),
-            Err(err) => eprintln!("Bug in the match : {}", err),
-        }
+        io::stdin().read_line(&mut file_name)?;
+        create_file(&file_name.trim())?;
+        println!("File created nicely.")
     }
+    Ok(())
 }
 
-// File::create return a Result type, so we need to handle the error
-// Result type is an enum with two variants : Ok and Err
-// Ok is returned when the operation is successful
-// Err is returned when the operation failed
+fn prompt_for_password() -> Result<String, io::Error> {
+    println!("[+] Enter a password for your file : ");
+    let mut user_password = String::new();
+    io::stdin().read_line(&mut user_password)?;
+    Ok(user_password)
+}
+
 fn create_file(path: &str) -> io::Result<()> {
     let _file = File::create(path)?;
     Ok(())
 }
 
+#[warn(dead_code)]
 fn write_to_file(path: &str, content: &str) -> io::Result<()> {
     // open the file in read and write acces, and open the file if it exist
     let mut file = OpenOptions::new()
@@ -80,8 +78,36 @@ fn write_to_file(path: &str, content: &str) -> io::Result<()> {
     Ok(())
 }
 
-// fn encrypt_string(content: &str) -> String {
-//     let mcrypt = new_magic_crypt!("magickey", 256);
-//     let encrypted_string = mcrypt.encrypt_bytes_to_base64(content);
-//     encrypted_string
-// }
+fn derive_key_from_password(password: &str) -> [u8; 32] {
+    let salt= SaltString::generate(&mut rand::thread_rng());
+    let argon2 = Argon2::default();
+    let password_hash = argon2.hash_password(password.as_bytes(), &salt).unwrap();
+
+    let hash = password_hash.hash.unwrap();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(hash.as_bytes());
+    key
+}
+
+fn save_encrypted_password(file_path: &str, salt: &[u8], encrypted_password: &[u8]) -> io::Result<()> {
+    let mut file = File::create(file_path)?;
+    file.write_all(salt)?;
+    file.write_all(encrypted_password)?;
+    Ok(())
+}
+
+fn encrypt_password(password: &str, key: &[u8]) -> Vec<u8> {
+    let password_byte = password.as_bytes();
+    let nonce = chacha20::Nonce::from_slice(&[0u8; 12]).unwrap(); // use a unique nonce for each cypher
+
+    let mut ciphertext = vec![0u8; password_byte.len()];
+
+    chacha20::encrypt(&chacha20::SecretKey::from_slice(key).unwrap(),
+        &nonce, 
+    0, 
+    password_byte, 
+    &mut ciphertext
+    ).expect("Encryption failed.");
+
+    ciphertext
+}
